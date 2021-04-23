@@ -1,0 +1,260 @@
+Here is how I moved the help to disk files.  Read very carefully :)
+
+Send problems, questions, grips, etc, to abakun@interaccess.com
+
+Gustavo: You are welcome to put this in the FUP dir to be FTP'ed (it probally 
+shouldn't be tar'ed up with the builtins tho...)
+
+[WARNING: read Andy's caveat at the end. --Gustavo]
+
+****** Setting it up ******
+Okay, you have FUP (at least version 1.2) installed, right and you want to 
+move the help files to disk.  Here is how you do it:
+
+Create a directory in the files/ directory named 'help'. (my :get_topic mod 
+looks for a dir in files/ named help/)
+It doesn't really matter how you break them up, but I created a few subdirs 
+inside help/, one for each of the core help objects.  afterward, my dir tree 
+looked like:
+
+                   ---- core_util/
+                 /
+               /      / wizard/
+             /      /  
+             |    /
+files/ --- help/  ----- builtin/
+   |         |    \
+   |         \      \
+  <etc..>      \      \ general/
+                 \
+                   ---- editor/
+
+and 
+
+;filelist("help")
+=> {{}, {"editor", "wizard", "core_util", "prog", "general", "builtin"}}
+
+Then you want to install these four verbs (be sure to put periods after the 
+end of each code part... I've had bad experiences with sending mail with 
+single periods on a line, so I just removed them before sending this. Be sure 
+to replace <PUT A PERIOD HERE> with a period before you paste it in (but I 
+don't really need to tell you that, do I?)
+
+Then, you need to "move" or copy the help off the db to the files. like this:
+
+@movehelp <obj> to <dir>
+
+<dir> must already be created and <obj> can be core refs (like $help or 
+$editor_help)
+example:
+@movehelp $editor_help to editor
+
+It will print out a bunch of lines of status messages... read these 
+carefully, cause it will tell you what it was doing.  They should all say:
+Editor Help.<topic> => help/editor/<topic>
+
+It won't over write any file with the same name, and it won't try to move 
+things that have illegal unix file names (spaces, /, :... etc.. also it won't 
+move any topic that is one character long.  I did this to make most of it 
+automatic, with few errors as possible. You can move the few things that have 
+problems by hand later.)
+
+It should say, **done**... check to make sure everything went okay, then type:
+
+@inithelp <obj> in <dir>
+
+again, <dir> must already be created and have files in it matching the names 
+of the props on <obj>.  These files were created by @movehelp, so it should 
+be able to find them all (it will tell you if it can't find a file)
+
+Using our editor example, you'd type:
+@inithelp $editor_help in editor
+
+It will go through every prop on $editor_help and look for a matching file in 
+files/help/editors.  If one is found, it sets the prop to: {"*disk*", 
+"editor/<topic>"}... There are cases where the prop won't be set, such as it 
+is already a help *directive* and it's length is 2 (meaning we get no savings 
+by getting this file from disk) or the file <topic> isn't found in 
+files/help/editor/.
+
+Again, it will tell you each time it looks at a prop and what it's done.  Go 
+over this carefully. It could say it coudn't find a file, or that the 
+contents is already a directive.  Most of them should say something like 
+Editor Help.<topic> => help/editor/<topic>.  those are the ones that made it 
+through okay.
+
+It will have problems moving the help topics that contain with spaces 
+(specifically, $help.(" name") and $help.(" alias")... so no changes are made 
+to them (but they are short anyway).
+
+At this time, you should be able to type help <some topic that was moved to 
+disk> and have it come up okay (you did install the other two verbs below, 
+right? :get_topic and :disk?)
+
+****** Moving Help to Disk Manually ******
+There is a problem with help topics that do not translate into UNIX file 
+names very well, such as name and alias mentioned above... there are also 
+others.  If you encounter a help topic that is still stored in the db and is 
+quite long, here is what you do:
+
+;filewrite("help/<dir>", "<any valid unix filename>", <help obj>.("<prop>"))
+=> 1
+
+you should get a 1 back, meaning write was successful.
+
+You then need to tell the help obj where it can find the file for that topic 
+with:
+
+;<help obj>.("<prop>") = {"*disk*", "<dir>/<any valid unix filename>"}
+
+You should use the same values here as you did in the first eval. Note that 
+the path name doensn't include "help/" and has the filename in it also 
+(unlike the calls to the FUP functions, which require it to be seperate). so 
+as an example, $help.(" alias") didn't get moved (not that it needs to, as 
+it's small anyway, but just for example:
+
+;filewrite("help/general", "alias-help", $help.(" alias"))
+=> 1
+;$help.(" alias") = {"*disk*", "general/alias-help"}
+=> {"*disk*", "general/alias-help"}
+
+That's all there is to it.  Now, typing help alias will get the file off 
+disk.  There are better examples of this, such as *pass* directives, but the 
+verbs I've provided should be best for most uses.
+
+
+****** VERBS ******
+"***START OF VERB CODE
+
+@verb $wiz:@movehelp any to any rd #2
+@program $wiz:@movehelp
+"@movehelp <help db obj> to <directory name>";
+"";
+"Copies the help files from the database onto disk.";
+"<directory name> must already exist with the files/help/ dir.";
+"This verb should only be executed once.  If excuted again, the help topics 
+will be over written with anything new in the <help db obj> properties.  It 
+does make sure that the file doens't exist before it writes it.";
+set_task_perms(player);
+path = "help/" + iobjstr;
+if (!(iobjstr in filelist("help")[2]))
+  return player:tell("Could not find " + path + "!");
+endif
+helpdb = eval("return " + dobjstr + ";")[2];
+player:tell("helpdb = " + tostr(helpdb));
+for prop in (properties(helpdb))
+  if (prop != "" && length(prop) > 1 && !(index(prop, " ") || index(prop, 
+"/") || index(prop, ":") || index(prop, "|") || index(prop, "\"")))
+    if (fileexists(path, prop))
+      player:tell(path + "/" + prop + " => file exists.");
+    else
+      status = filewrite(path, prop, helpdb.(prop));
+      if (status)
+        player:tell(prop + " => " + path + "/" + prop + ".");
+      else
+        player:tell("!! " + path + "/" + prop + " => disk error.");
+      endif
+    endif
+  endif
+  $command_utils:suspend_if_needed(0);
+endfor
+player:tell("** done **");
+"779049690 ThwartedEfforts";
+<PUT A PERIOD HERE>
+        
+@verb $wiz:@inithelp any in any rd #2
+@program $wiz:@inithelp
+"@inithelp <help db obj> in <directory name>";
+"";
+"Tells the help databases where it to find the help files on disk.";
+"Actually sets the help props on <help db obj> to {\"*disk*\", 
+\"help/<directory name>/<help topic>\"}";
+"Checks to make sure that the file exists first.  For speed reasons, will not 
+write over short directives (two element ones).";
+set_task_perms(player);
+hpath = "help/";
+path = iobjstr;
+if (!(iobjstr in filelist("help")[2]))
+  return player:tell("Could not find " + hpath + path + "!");
+endif
+helpdb = eval("return " + dobjstr + ";")[2];
+for prop in (properties(helpdb))
+  if (prop != "" && length(prop) > 1 && !(index(prop, " ") || index(prop, 
+"/") || index(prop, ":") || index(prop, "|") || index(prop, "\"")))
+    if (fileexists(hpath + path, prop))
+      if (index(helpdb.(prop)[1], "*") == 1 && rindex(helpdb.(prop)[1], "*") 
+== length(helpdb.(prop)[1]) && length(helpdb.(prop)) == 2)
+        player:tell(helpdb:title() + "." + prop + " => No Change.");
+      else
+        helpdb.(prop) = {"*disk*", path + "/" + prop};
+        player:tell(helpdb:title() + "." + prop + " => " + hpath + path + "/" 
++ prop + ".");
+      endif
+    else
+      player:tell(hpath + path + "/" + prop + " => file not found.");
+    endif
+  endif
+  $command_utils:suspend_if_needed(0);
+endfor
+player:tell("** done **");
+"779051003 ThwartedEfforts";
+<PUT A PERIOD HERE>
+
+@verb $generic_help:disk this none this rx #2
+@program $generic_help:disk
+"{\"*disk*\", \"<path>/<file>\"} => read the help from the disk file at 
+<path>/<file>";
+completepath = args[1][1];
+loc = rindex(completepath, "/");
+path = ("help/" + completepath[1..loc - 1]);
+file = completepath[loc + 1..length(completepath)];
+return fileread(path, file);
+"778968015 ThwartedEfforts";
+<PUT A PERIOD HERE>
+
+@program $generic_help:get_topic
+"$generic_help:get_topic";
+"";
+"If the help topic returned contains a *directive*, those directives are 
+called until one doesn't exists.";
+"This allows long help files that use *subst* to be read in from disk.  
+Allows nesting of help directives.";
+"WIZARDLY";
+topic = args[1];
+dblist = {@args, {}}[2];
+text = this.(topic) || this.(" " + topic);
+while (text && typeof(text) == LIST && text[1] == "*" + (vb = strsub(text[1], 
+"*", "")) + "*")
+  text = this:(vb)(listdelete(text, 1), dblist);
+endwhile
+return text;
+"779054415 ThwartedEfforts";
+<PUT A PERIOD HERE>
+
+"***END OF VERB CODE
+
+
+From: abakun@rci.ripco.com (Thwarted Efforts)
+Subject: Re: offline help
+To: connamr@alleg.edu (Richard Connamacher)
+Date: Sun, 23 Apr 1995 21:41:28 PDT
+Cc: moo-cows@parc.xerox.com
+Mime-Version: 1.0
+Sender: MOO-Cows-Errors@parc.xerox.com
+Precedence: bulk
+
+> 
+> >i'm also interested in getting help offline... intermixing offline &
+> >online help is a must... anyone done this?
+> 
+> Get FUP.  The instructions on how to do this come with it.
+> 
+> Phantom
+
+Actually, I would recommend against using the code that I wrote that offlines the mail.  When version 1.4 of FUP came out, 
+things were included which restricted the characters that can be in filenames (which was A Good Thing (tm), don't get me wrong)...
+I have improved the code a bit and will rewrite the code that actually copies the help text to disk (I'm more confident in my 
+knowledge of using FUP now), and will have it posted here by the end of the week (read that as by thursday)... Gustavo, could you 
+please capture it and replace the old one with the new one that I will post.
+Thanks.
+
